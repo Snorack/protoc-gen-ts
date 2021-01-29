@@ -1107,7 +1107,7 @@ function isUnaryRPC(methodDescriptor) {
 }
 
 // Returns grpc-node compatible service description
-function createService(rootDescriptor, serviceDescriptor) {
+function createService(rootDescriptor, serviceDescriptor, options) {
   return ts.createVariableStatement(
     [ts.createModifier(ts.SyntaxKind.ExportKeyword)],
     [
@@ -1117,7 +1117,7 @@ function createService(rootDescriptor, serviceDescriptor) {
         ts.createObjectLiteral(
           serviceDescriptor.getMethodList().map((methodDescriptor) => {
             return ts.createPropertyAssignment(
-              methodDescriptor.getName(),
+              options.camelCaseMethodNames ? methodDescriptor.getName().charAt(0).toLowerCase() + methodDescriptor.getName().slice(1) : methodDescriptor.getName(),
               ts.createObjectLiteral(
                 [
                   ts.createPropertyAssignment(
@@ -1145,13 +1145,13 @@ function createService(rootDescriptor, serviceDescriptor) {
                   ts.createPropertyAssignment(
                     "requestType",
                     ts.createIdentifier(
-                      methodDescriptor.getInputType().slice(1)
+                      options.createNamespaces ? methodDescriptor.getInputType().slice(1) : getRPCInputType(rootDescriptor, methodDescriptor)
                     )
                   ),
                   ts.createPropertyAssignment(
                     "responseType",
                     ts.createIdentifier(
-                      methodDescriptor.getOutputType().slice(1)
+                      options.createNamespaces ? methodDescriptor.getOutputType().slice(1) : getRPCOutputType(rootDescriptor, methodDescriptor)
                     )
                   ),
                   ts.createPropertyAssignment(
@@ -1601,7 +1601,7 @@ function processProtoDescriptor(
       )
     );
   }
-  
+
 
   return statements;
 }
@@ -1637,6 +1637,22 @@ function replaceExtension(filename, extension = ".ts") {
   return filename.replace(/\.[^/.]+$/, extension)
 }
 
+function optionsFromParameter(parameter) {
+  const options = {
+    camelCaseMethodNames: false,
+    createNamespaces: true
+  }
+  if (parameter) {
+    if (parameter.includes('createNamespaces=false')) {
+      options.createNamespaces = false;
+    }
+    if (parameter.includes('camelCaseMethodNames=true')) {
+      options.camelCaseMethodNames = true;
+    }
+  }
+  return options;
+}
+
 function main() {
   const pbBuffer = fs.readFileSync(0);
   const pbVector = new Uint8Array(pbBuffer.length);
@@ -1645,6 +1661,7 @@ function main() {
   const codeGenRequest = plugin.CodeGeneratorRequest.deserializeBinary(
     pbVector
   );
+  const options = optionsFromParameter(codeGenRequest.toObject().parameter);
   const codeGenResponse = new plugin.CodeGeneratorResponse();
 
   const descriptors = codeGenRequest.getProtoFileList();
@@ -1732,7 +1749,7 @@ function main() {
 
     // Create all services and clients
     for (const serviceDescriptor of descriptor.getServiceList()) {
-      statements.push(createService(descriptor, serviceDescriptor));
+      statements.push(createService(descriptor, serviceDescriptor, options));
       statements.push(
         createServiceClient(descriptor, serviceDescriptor, grpcIdentifier)
       );
@@ -1743,7 +1760,7 @@ function main() {
     }
 
     // Wrap statements within the namespace
-    if (descriptor.hasPackage()) {
+    if (descriptor.hasPackage() && options.createNamespaces) {
       sf.statements = ts.createNodeArray([
         ...importStatements,
         createNamespace(descriptor.getPackage(), statements),
