@@ -1118,7 +1118,7 @@ function createService(rootDescriptor, serviceDescriptor, options) {
           ts.createObjectLiteral(
             serviceDescriptor.getMethodList().map((methodDescriptor) => {
               return ts.createPropertyAssignment(
-                methodDescriptor.getName(),
+                options.camelCaseMethodNames ? methodDescriptor.getName().charAt(0).toLowerCase() + methodDescriptor.getName().slice(1) : methodDescriptor.getName(),
                 ts.createObjectLiteral(
                   [
                     ts.createPropertyAssignment(
