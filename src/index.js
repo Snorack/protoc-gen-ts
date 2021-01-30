@@ -1106,6 +1106,72 @@ function isUnaryRPC(methodDescriptor) {
   );
 }
 
+function getRPCMethodName(methodDescriptor, options) {
+  return options.camelCaseMethodNames ? methodDescriptor.getName().charAt(0).toLowerCase() + methodDescriptor.getName().slice(1) : methodDescriptor.getName()
+}
+
+// Returns interface definition of the service description
+function createServiceInterface(rootDescriptor, serviceDescriptor, grpcIdentifier, options) {
+  return ts.createInterfaceDeclaration(
+    undefined,
+    [ts.createModifier(ts.SyntaxKind.ExportKeyword)],
+    ts.createIdentifier(`I${serviceDescriptor.getName()}Service`),
+    undefined,
+    [
+      ts.createHeritageClause(ts.SyntaxKind.ExtendsKeyword, [
+        ts.createTypeReferenceNode(
+          ts.createQualifiedName(grpcIdentifier, ts.createIdentifier("ServiceDefinition")),
+          [
+            ts.createQualifiedName(grpcIdentifier, ts.createIdentifier("UntypedServiceImplementation"))
+          ]
+        ),
+      ]),
+    ],
+    serviceDescriptor.getMethodList().map((methodDescriptor) => {
+      return ts.createPropertySignature(
+        undefined,
+        getRPCMethodName(methodDescriptor, options),
+        undefined,
+        ts.createTypeReferenceNode(
+          ts.createQualifiedName(grpcIdentifier, ts.createIdentifier("MethodDefinition")),
+          [
+            ts.createIdentifier(getRPCInputType(rootDescriptor, methodDescriptor)),
+            ts.createIdentifier(getRPCOutputType(rootDescriptor, methodDescriptor))
+          ]
+        )
+      )
+    })
+  )
+}
+
+function createServerInterface(rootDescriptor, serviceDescriptor, grpcIdentifier, options) {
+  return ts.createInterfaceDeclaration(
+    undefined,
+    [ts.createModifier(ts.SyntaxKind.ExportKeyword)],
+    ts.createIdentifier(`I${serviceDescriptor.getName()}Server`),
+    undefined,
+    [
+      ts.createHeritageClause(ts.SyntaxKind.ExtendsKeyword, [
+        ts.createQualifiedName(grpcIdentifier, ts.createIdentifier("UntypedServiceImplementation")),
+      ]),
+    ],
+    serviceDescriptor.getMethodList().map((methodDescriptor) => {
+      return ts.createPropertySignature(
+        undefined,
+        getRPCMethodName(methodDescriptor, options),
+        undefined,
+        ts.createTypeReferenceNode(
+          ts.createQualifiedName(grpcIdentifier, ts.createIdentifier("handleUnaryCall")),
+          [
+            ts.createIdentifier(getRPCInputType(rootDescriptor, methodDescriptor)),
+            ts.createIdentifier(getRPCOutputType(rootDescriptor, methodDescriptor))
+          ]
+        )
+      )
+    })
+  )
+}
+
 // Returns grpc-node compatible service description
 function createService(rootDescriptor, serviceDescriptor, options) {
   return ts.createVariableStatement(
@@ -1114,11 +1180,11 @@ function createService(rootDescriptor, serviceDescriptor, options) {
       [
         ts.createVariableDeclaration(
           ts.createIdentifier(serviceDescriptor.getName()),
-          undefined,
+          ts.createIdentifier(`I${serviceDescriptor.getName()}Service`),
           ts.createObjectLiteral(
             serviceDescriptor.getMethodList().map((methodDescriptor) => {
               return ts.createPropertyAssignment(
-                options.camelCaseMethodNames ? methodDescriptor.getName().charAt(0).toLowerCase() + methodDescriptor.getName().slice(1) : methodDescriptor.getName(),
+                getRPCMethodName(methodDescriptor, options),
                 ts.createObjectLiteral(
                   [
                     ts.createPropertyAssignment(
@@ -1142,18 +1208,6 @@ function createService(rootDescriptor, serviceDescriptor, options) {
                       methodDescriptor.getServerStreaming()
                         ? ts.createTrue()
                         : ts.createFalse()
-                    ),
-                    ts.createPropertyAssignment(
-                      "requestType",
-                      ts.createIdentifier(
-                        options.createNamespaces ? methodDescriptor.getInputType().slice(1) : getRPCInputType(rootDescriptor, methodDescriptor)
-                      )
-                    ),
-                    ts.createPropertyAssignment(
-                      "responseType",
-                      ts.createIdentifier(
-                        options.createNamespaces ? methodDescriptor.getOutputType().slice(1) : getRPCOutputType(rootDescriptor, methodDescriptor)
-                      )
                     ),
                     ts.createPropertyAssignment(
                       "requestSerialize",
@@ -1766,6 +1820,8 @@ function main() {
 
     // Create all services and clients
     for (const serviceDescriptor of descriptor.getServiceList()) {
+      statements.push(createServiceInterface(descriptor, serviceDescriptor, grpcIdentifier, options));
+      statements.push(createServerInterface(descriptor, serviceDescriptor, grpcIdentifier, options));
       statements.push(createService(descriptor, serviceDescriptor, options));
       statements.push(
         createServiceClient(descriptor, serviceDescriptor, grpcIdentifier)
