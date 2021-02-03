@@ -289,15 +289,20 @@ function createTypeIdentifier(fieldDescriptor, packageName, getNamedImport) {
     throw new TypeError();
   }
 
-  const namedImport = getNamedImport(fieldDescriptor);
+  const result = getNamedImport(fieldDescriptor);
   const normalized = normalizeTypeName(
     fieldDescriptor.getTypeName(),
     packageName
   );
 
-  return namedImport
-    ? ts.createPropertyAccess(namedImport, normalized.replace(/^[^.]+./, ""))
-    : ts.createIdentifier(normalized);
+  if (result.createNamespaces) {
+    return result.namedImport
+      ? ts.createPropertyAccess(result.namedImport, normalized.replace(/^[^.]+./, ""))
+      : ts.createIdentifier(normalized);
+  } else {
+    const typeNameSplitArray = fieldDescriptor.getTypeName().split(".");
+    return ts.createIdentifier(typeNameSplitArray[typeNameSplitArray.length - 1]);
+  }
 }
 
 function normalizeTypeName(name, packageName) {
@@ -1742,8 +1747,8 @@ function main() {
 
   for (const descriptor of descriptors) {
     const file = descriptor.getName();
-    const packageName = descriptor.getPackage();
-    for (const path of getExportPaths(packageName.split("."), descriptor)) {
+    const packageNameArray = options.createNamespaces ? descriptor.getPackage().split(".") : [];
+    for (const path of getExportPaths(packageNameArray, descriptor)) {
       fileExports["." + path.join(".")] = { file, namedImport: path[0] };
     }
   }
@@ -1776,21 +1781,26 @@ function main() {
       descriptor,
       pbIdentifier,
       (fieldDescriptor) => {
-        const typeName = fieldDescriptor.getTypeName();
+        const typeName = options.createNamespaces ? fieldDescriptor.getTypeName() : `.${fieldDescriptor.getTypeName().split(".")[fieldDescriptor.getTypeName().split(".").length - 1]}`;
         if (!fileExports[typeName]) {
-          return;
+          return { createNamespaces: options.createNamespaces };
         }
         const { file, namedImport } = fileExports[typeName];
         if (file === fileName) {
-          return;
+          return { createNamespaces: options.createNamespaces };
         }
         if (!dependencies[file]) {
           dependencies[file] = {};
         }
         if (!dependencies[file][namedImport]) {
-          dependencies[file][namedImport] = ts.createUniqueName(namedImport);
+          if (options.createNamespaces) {
+            dependencies[file][namedImport] = ts.createUniqueName(namedImport);
+          } else {
+            dependencies[file][namedImport] = ts.createIdentifier(namedImport);
+          }
         }
-        return dependencies[file][namedImport];
+
+        return { namedImport : dependencies[file][namedImport], createNamespaces: options.createNamespaces };
       }
     );
 
